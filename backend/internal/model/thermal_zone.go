@@ -11,6 +11,7 @@ type ThermalZone struct {
 	MaxReturnTempC    float64   `gorm:"not null" json:"max_return_temp_c"`
 	AdjacencyJSON     string    `gorm:"type:text;not null;default:'{}'" json:"adjacency_json"`
 	ZoneStatus        string    `gorm:"size:24;not null;index" json:"zone_status"`
+	Version           uint      `gorm:"not null;default:1" json:"version"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }

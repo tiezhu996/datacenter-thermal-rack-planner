@@ -62,41 +62,51 @@ func (r *RackRepository) Get(ctx context.Context, id uint) (model.Rack, error) {
 	return rack, nil
 }
 
-func (r *RackRepository) Create(ctx context.Context, rack *model.Rack, entry audit.Entry) (err error) {
-	tx := r.db.WithContext(ctx).Begin()
-	defer func() { err = tx.Commit().Error }()
-	var zoneCount int64
-	if err = tx.Model(&model.ThermalZone{}).Where("id = ?", rack.ZoneID).Count(&zoneCount).Error; err != nil {
-		return fmt.Errorf("validate rack zone: %w", err)
-	}
-	if zoneCount == 0 {
-		return web.Unprocessable("ZONE_NOT_FOUND", "selected thermal zone does not exist", nil)
-	}
-	if err = tx.Create(rack).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return web.Conflict("RACK_CONFLICT", "rack code or zone position already exists", err)
+func (r *RackRepository) Create(ctx context.Context, rack *model.Rack, entry audit.Entry) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var zoneCount int64
+		if err := tx.Model(&model.ThermalZone{}).Where("id = ?", rack.ZoneID).Count(&zoneCount).Error; err != nil {
+			return fmt.Errorf("validate rack zone: %w", err)
 		}
-		return fmt.Errorf("create rack: %w", err)
-	}
-	entry.EntityID = rack.ID
-	return r.audit.RecordWithDB(ctx, tx, entry)
+		if zoneCount == 0 {
+			return web.Unprocessable("ZONE_NOT_FOUND", "selected thermal zone does not exist", nil)
+		}
+		if err := tx.Create(rack).Error; err != nil {
+			if errors.Is(err, gorm.ErrDuplicatedKey) {
+				return web.Conflict("RACK_CONFLICT", "rack code or zone position already exists", err)
+			}
+			return fmt.Errorf("create rack: %w", err)
+		}
+		entry.EntityID = rack.ID
+		return r.audit.RecordWithDB(ctx, tx, entry)
+	})
 }
 
-func (r *RackRepository) Update(ctx context.Context, rack *model.Rack, expectedVersion uint, entry audit.Entry) (err error) {
-	tx := r.db.WithContext(ctx).Begin()
-	defer func() { err = tx.Commit().Error }()
-	result := tx.Model(&model.Rack{}).Where("id = ?", rack.ID).Updates(map[string]any{
-		"zone_id": rack.ZoneID, "row_index": rack.RowIndex, "column_index": rack.ColumnIndex,
-		"power_limit_kw": rack.PowerLimitKW, "airflow_limit_cfm": rack.AirflowLimitCFM,
-		"rack_units": rack.RackUnits, "rack_status": rack.RackStatus,
-		"version": gorm.Expr("version + 1"),
-	})
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
-			return web.Conflict("RACK_CONFLICT", "rack position is already occupied", result.Error)
+func (r *RackRepository) Update(ctx context.Context, rack *model.Rack, expectedVersion uint, entry audit.Entry) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.Rack{}).Where("id = ? AND version = ?", rack.ID, expectedVersion).Updates(map[string]any{
+			"zone_id": rack.ZoneID, "row_index": rack.RowIndex, "column_index": rack.ColumnIndex,
+			"power_limit_kw": rack.PowerLimitKW, "airflow_limit_cfm": rack.AirflowLimitCFM,
+			"rack_units": rack.RackUnits, "rack_status": rack.RackStatus,
+			"version": gorm.Expr("version + 1"),
+		})
+		if result.Error != nil {
+			if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
+				return web.Conflict("RACK_CONFLICT", "rack position is already occupied", result.Error)
+			}
+			return fmt.Errorf("update rack: %w", result.Error)
 		}
-		return fmt.Errorf("update rack: %w", result.Error)
-	}
-	entry.EntityID = rack.ID
-	return r.audit.RecordWithDB(ctx, tx, entry)
+		if result.RowsAffected == 0 {
+			var count int64
+			if err := tx.Model(&model.Rack{}).Where("id = ?", rack.ID).Count(&count).Error; err != nil {
+				return fmt.Errorf("check rack existence: %w", err)
+			}
+			if count == 0 {
+				return web.NotFound("rack")
+			}
+			return web.Conflict("RACK_VERSION_CONFLICT", "rack was changed by another user", nil)
+		}
+		entry.EntityID = rack.ID
+		return r.audit.RecordWithDB(ctx, tx, entry)
+	})
 }

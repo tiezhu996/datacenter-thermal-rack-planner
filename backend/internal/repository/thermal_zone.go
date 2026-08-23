@@ -43,7 +43,9 @@ func (r *ThermalZoneRepository) List(ctx context.Context, search, status string,
 
 func (r *ThermalZoneRepository) Get(ctx context.Context, id uint) (model.ThermalZone, error) {
 	var zone model.ThermalZone
-	_ = r.db.WithContext(ctx).First(&zone, id).Error
+	if err := r.db.WithContext(ctx).First(&zone, id).Error; err != nil {
+		return model.ThermalZone{}, fmt.Errorf("get thermal zone %d: %w", id, err)
+	}
 	return zone, nil
 }
 
@@ -71,38 +73,41 @@ func (r *ThermalZoneRepository) RackCount(ctx context.Context, zoneID uint) (int
 	return count, nil
 }
 
-func (r *ThermalZoneRepository) Create(ctx context.Context, zone *model.ThermalZone, entry audit.Entry) (err error) {
-	tx := r.db.WithContext(ctx).Begin()
-	defer func() { err = tx.Commit().Error }()
-	if err = tx.Create(zone).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return web.Conflict("ZONE_CODE_EXISTS", "zone code already exists", err)
+func (r *ThermalZoneRepository) Create(ctx context.Context, zone *model.ThermalZone, entry audit.Entry) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(zone).Error; err != nil {
+			if errors.Is(err, gorm.ErrDuplicatedKey) {
+				return web.Conflict("ZONE_CODE_EXISTS", "zone code already exists", err)
+			}
+			return fmt.Errorf("create thermal zone: %w", err)
 		}
-		return fmt.Errorf("create thermal zone: %w", err)
-	}
-	entry.EntityID = zone.ID
-	if err = r.audit.RecordWithDB(ctx, tx, entry); err != nil {
-		return err
-	}
-	return nil
+		entry.EntityID = zone.ID
+		return r.audit.RecordWithDB(ctx, tx, entry)
+	})
 }
 
-func (r *ThermalZoneRepository) Update(ctx context.Context, zone *model.ThermalZone, entry audit.Entry) error {
+func (r *ThermalZoneRepository) Update(ctx context.Context, zone *model.ThermalZone, expectedVersion uint, entry audit.Entry) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&model.ThermalZone{}).Where("id = ?", zone.ID).Updates(map[string]any{
+		result := tx.Model(&model.ThermalZone{}).Where("id = ? AND version = ?", zone.ID, expectedVersion).Updates(map[string]any{
 			"name": zone.Name, "cooling_capacity_kw": zone.CoolingCapacityKW,
 			"supply_temp_c": zone.SupplyTempC, "max_return_temp_c": zone.MaxReturnTempC,
 			"adjacency_json": zone.AdjacencyJSON, "zone_status": zone.ZoneStatus,
+			"version": gorm.Expr("version + 1"),
 		})
 		if result.Error != nil {
 			return fmt.Errorf("update thermal zone: %w", result.Error)
 		}
 		if result.RowsAffected == 0 {
-			return web.NotFound("thermal zone")
+			var count int64
+			if err := tx.Model(&model.ThermalZone{}).Where("id = ?", zone.ID).Count(&count).Error; err != nil {
+				return fmt.Errorf("check thermal zone existence: %w", err)
+			}
+			if count == 0 {
+				return web.NotFound("thermal zone")
+			}
+			return web.Conflict("ZONE_VERSION_CONFLICT", "thermal zone was changed by another user", nil)
 		}
-		if err := r.audit.RecordWithDB(ctx, tx, entry); err != nil {
-			return err
-		}
-		return nil
+		entry.EntityID = zone.ID
+		return r.audit.RecordWithDB(ctx, tx, entry)
 	})
 }

@@ -40,7 +40,7 @@ func (s *ThermalZoneService) List(ctx context.Context, search, status string, pa
 				allocated += rack.PowerLimitKW
 			}
 		}
-		responses = append(responses, decodeZone(zone.ID, zone.ZoneCode, zone.Name, zone.CoolingCapacityKW, zone.SupplyTempC, zone.MaxReturnTempC, zone.AdjacencyJSON, zone.ZoneStatus, count, allocated))
+		responses = append(responses, decodeZone(zone.ID, zone.ZoneCode, zone.Name, zone.CoolingCapacityKW, zone.SupplyTempC, zone.MaxReturnTempC, zone.AdjacencyJSON, zone.ZoneStatus, zone.Version, count, allocated))
 	}
 	return responses, total, nil
 }
@@ -64,7 +64,7 @@ func (s *ThermalZoneService) Get(ctx context.Context, id uint) (dto.ThermalZoneR
 			allocated += rack.PowerLimitKW
 		}
 	}
-	return decodeZone(zone.ID, zone.ZoneCode, zone.Name, zone.CoolingCapacityKW, zone.SupplyTempC, zone.MaxReturnTempC, zone.AdjacencyJSON, zone.ZoneStatus, count, allocated), nil
+	return decodeZone(zone.ID, zone.ZoneCode, zone.Name, zone.CoolingCapacityKW, zone.SupplyTempC, zone.MaxReturnTempC, zone.AdjacencyJSON, zone.ZoneStatus, zone.Version, count, allocated), nil
 }
 
 func (s *ThermalZoneService) Create(ctx context.Context, req dto.CreateThermalZoneRequest, actor audit.Entry) (dto.ThermalZoneResponse, error) {
@@ -78,10 +78,13 @@ func (s *ThermalZoneService) Create(ctx context.Context, req dto.CreateThermalZo
 	if err := s.zones.Create(ctx, &zone, actor); err != nil {
 		return dto.ThermalZoneResponse{}, err
 	}
-	return decodeZone(zone.ID, zone.ZoneCode, zone.Name, zone.CoolingCapacityKW, zone.SupplyTempC, zone.MaxReturnTempC, zone.AdjacencyJSON, zone.ZoneStatus, 0, 0), nil
+	return decodeZone(zone.ID, zone.ZoneCode, zone.Name, zone.CoolingCapacityKW, zone.SupplyTempC, zone.MaxReturnTempC, zone.AdjacencyJSON, zone.ZoneStatus, zone.Version, 0, 0), nil
 }
 
 func (s *ThermalZoneService) Update(ctx context.Context, id uint, req dto.UpdateThermalZoneRequest, actor audit.Entry) (dto.ThermalZoneResponse, error) {
+	if req.Version == 0 {
+		return dto.ThermalZoneResponse{}, web.Unprocessable("INVALID_ZONE_BOUNDARY", "zone version is required", nil)
+	}
 	current, err := s.zones.Get(ctx, id)
 	if err != nil {
 		return dto.ThermalZoneResponse{}, err
@@ -105,13 +108,13 @@ func (s *ThermalZoneService) Update(ctx context.Context, id uint, req dto.Update
 	actor.BeforeSummary = beforeSummary
 	actor.AfterSummary = fmt.Sprintf("capacity=%.2f supply=%.2f max_return=%.2f", req.CoolingCapacityKW, req.SupplyTempC, req.MaxReturnTempC)
 	actor.EntityID = id
-	if err := s.zones.Update(ctx, &current, actor); err != nil {
+	if err := s.zones.Update(ctx, &current, req.Version, actor); err != nil {
 		return dto.ThermalZoneResponse{}, err
 	}
 	return s.Get(ctx, id)
 }
 
-func decodeZone(id uint, code, name string, capacity, supply, maximum float64, adjacency, status string, rackCount int64, allocated float64) dto.ThermalZoneResponse {
+func decodeZone(id uint, code, name string, capacity, supply, maximum float64, adjacency, status string, version uint, rackCount int64, allocated float64) dto.ThermalZoneResponse {
 	utilization := 0.0
 	if capacity > 0 {
 		utilization = allocated / capacity * 100
@@ -119,7 +122,7 @@ func decodeZone(id uint, code, name string, capacity, supply, maximum float64, a
 	return dto.ThermalZoneResponse{
 		ID: id, ZoneCode: code, Name: name, CoolingCapacityKW: capacity, SupplyTempC: supply,
 		MaxReturnTempC: maximum, Adjacency: dto.DecodeAdjacency(adjacency), ZoneStatus: status,
-		RackCount: rackCount, AllocatedPowerKW: allocated, CapacityUtilization: utilization,
+		Version: version, RackCount: rackCount, AllocatedPowerKW: allocated, CapacityUtilization: utilization,
 		TemperatureHeadroom: maximum - supply,
 	}
 }

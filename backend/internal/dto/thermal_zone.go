@@ -26,6 +26,7 @@ type UpdateThermalZoneRequest struct {
 	MaxReturnTempC    float64            `json:"max_return_temp_c" binding:"required,gte=18,lte=60"`
 	Adjacency         map[string]float64 `json:"adjacency" binding:"required"`
 	ZoneStatus        string             `json:"zone_status" binding:"required,oneof=active constrained offline"`
+	Version           uint               `json:"version" binding:"required"`
 }
 
 type ThermalZoneResponse struct {
@@ -37,6 +38,7 @@ type ThermalZoneResponse struct {
 	MaxReturnTempC      float64            `json:"max_return_temp_c"`
 	Adjacency           map[string]float64 `json:"adjacency"`
 	ZoneStatus          string             `json:"zone_status"`
+	Version             uint               `json:"version"`
 	RackCount           int64              `json:"rack_count"`
 	AllocatedPowerKW    float64            `json:"allocated_power_kw"`
 	CapacityUtilization float64            `json:"capacity_utilization"`
