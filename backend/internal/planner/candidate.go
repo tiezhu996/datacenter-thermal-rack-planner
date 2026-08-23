@@ -7,13 +7,7 @@ import (
 	"datacenter-thermal-capacity-planner/backend/internal/model"
 )
 
-var (
-	assignmentPool  []dto.RackAssignment
-	zoneResultPool  []dto.ZoneThermalResult
-	violationPool   []dto.ConstraintViolation
-)
-
-const AlgorithmVersion = "thermal-v1"
+var AlgorithmVersion = "thermal-v1"
 
 type Engine struct {
 	maxIterations int
@@ -56,14 +50,17 @@ func (e *Engine) Evaluate(zones []model.ThermalZone, racks []model.Rack, loads [
 		zoneByID[zone.ID] = zone
 	}
 
-	orderedRacks := racks
+	// Sort into private copies so the caller's slices are never mutated.
+	orderedRacks := make([]model.Rack, len(racks))
+	copy(orderedRacks, racks)
 	sort.SliceStable(orderedRacks, func(i, j int) bool {
 		if orderedRacks[i].RackCode == orderedRacks[j].RackCode {
 			return orderedRacks[i].ID < orderedRacks[j].ID
 		}
 		return orderedRacks[i].RackCode < orderedRacks[j].RackCode
 	})
-	orderedLoads := loads
+	orderedLoads := make([]model.EquipmentLoad, len(loads))
+	copy(orderedLoads, loads)
 	sort.SliceStable(orderedLoads, func(i, j int) bool {
 		left := tightness(orderedLoads[i], orderedRacks)
 		right := tightness(orderedLoads[j], orderedRacks)
@@ -87,7 +84,9 @@ func (e *Engine) Evaluate(zones []model.ThermalZone, racks []model.Rack, loads [
 		usage[rack.ID] = &rackUsage{groups: map[string]bool{}}
 	}
 
-	result := Result{Assignments: assignmentPool[:0], ZoneResults: zoneResultPool[:0], Violations: violationPool[:0]}
+	// Each evaluation gets fresh result slices so a later Evaluate cannot
+	// overwrite a previously returned result's backing arrays.
+	result := Result{Assignments: []dto.RackAssignment{}, ZoneResults: []dto.ZoneThermalResult{}, Violations: []dto.ConstraintViolation{}}
 	iterations := 0
 	for _, load := range orderedLoads {
 		if !load.IsPlannable() {
@@ -155,9 +154,6 @@ func (e *Engine) Evaluate(zones []model.ThermalZone, racks []model.Rack, loads [
 	result.PeakTemp = peak
 	result.Violations = append(result.Violations, validateFinalAssignments(orderedRacks, usage, zones, zonePower, result.Assignments)...)
 	result.Score = scenarioScore(result.Assignments, result.ZoneResults, result.Violations)
-	assignmentPool = result.Assignments
-	zoneResultPool = result.ZoneResults
-	violationPool = result.Violations
 	return result
 }
 

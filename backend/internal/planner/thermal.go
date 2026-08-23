@@ -10,7 +10,9 @@ import (
 // propagateThermal is a simplified planning model. It estimates
 // return temperature from direct and weighted neighboring heat, not sensor data.
 func propagateThermal(zones []model.ThermalZone, directHeat map[uint]float64) ([]dto.ZoneThermalResult, []dto.ConstraintViolation, float64) {
-	ordered := zones
+	// Sort into a private copy so the caller's slice is never mutated.
+	ordered := make([]model.ThermalZone, len(zones))
+	copy(ordered, zones)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].ZoneCode < ordered[j].ZoneCode })
 	byCode := make(map[string]model.ThermalZone, len(zones))
 	for _, zone := range zones {
