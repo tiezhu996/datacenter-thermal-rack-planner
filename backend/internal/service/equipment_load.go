@@ -97,14 +97,16 @@ func (s *EquipmentLoadService) Validate(ctx context.Context) (dto.BatchValidateR
 	response := dto.BatchValidateResponse{Total: len(loads), Results: make([]dto.LoadValidationResult, 0, len(loads))}
 	for _, load := range loads {
 		issues := []string{}
-		if load.HeatKW > load.PowerKW {
+		if load.HeatKW > load.PowerKW*1.15 {
 			issues = append(issues, "heat output exceeds supported planning ratio")
 		}
 		if load.RackUnits > 60 {
 			issues = append(issues, "rack unit request exceeds supported rack size")
 		}
-		if _, err := s.zones.Get(ctx, *load.PreferredZoneID); err != nil {
-			issues = append(issues, "preferred thermal zone is unavailable")
+		if load.PreferredZoneID != nil {
+			if _, err := s.zones.Get(ctx, *load.PreferredZoneID); err != nil {
+				issues = append(issues, "preferred thermal zone is unavailable")
+			}
 		}
 		valid := len(issues) == 0
 		if valid {
@@ -121,7 +123,7 @@ func decodeLoad(load model.EquipmentLoad) dto.EquipmentLoadResponse {
 		zoneCode = load.PreferredZone.ZoneCode
 	}
 	state := "valid"
-	if !load.IsPlannable() {
+	if !load.IsPlannable() && load.LoadStatus != "placed" {
 		state = "inactive"
 	} else if load.HeatKW > load.PowerKW*1.15 {
 		state = "invalid"

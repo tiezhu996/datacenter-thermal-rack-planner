@@ -20,9 +20,12 @@ type EquipmentLoad struct {
 func (EquipmentLoad) TableName() string { return "equipment_loads" }
 
 func (e EquipmentLoad) IsPlannable() bool {
-	return e.LoadStatus == "ready" || e.LoadStatus == "placed"
+	return e.LoadStatus == "ready"
 }
 
 func (e EquipmentLoad) HeatRatio() float64 {
+	if e.PowerKW == 0 {
+		return 0
+	}
 	return e.HeatKW / e.PowerKW
 }
