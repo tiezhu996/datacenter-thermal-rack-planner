@@ -65,7 +65,10 @@ func (r *EquipmentLoadRepository) FindByIDs(ctx context.Context, ids []uint) ([]
 func (r *EquipmentLoadRepository) Get(ctx context.Context, id uint) (model.EquipmentLoad, error) {
 	var load model.EquipmentLoad
 	if err := r.db.WithContext(ctx).Preload("PreferredZone").First(&load, id).Error; err != nil {
-		return model.EquipmentLoad{}, fmt.Errorf("get equipment load %d: %v", id, err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.EquipmentLoad{}, web.NotFound("equipment load")
+		}
+		return model.EquipmentLoad{}, fmt.Errorf("get equipment load %d: %w", id, err)
 	}
 	return load, nil
 }

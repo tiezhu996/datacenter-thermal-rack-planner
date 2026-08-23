@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -93,6 +94,12 @@ func Fail(c *gin.Context, err error) {
 		c.JSON(http.StatusInternalServerError, Envelope{Error: &Error{Code: "INTERNAL_ERROR", Message: "internal service error"}, RequestID: RequestID(c)})
 		return
 	}
+	var appErr *AppError
+	if errors.As(err, &appErr) && appErr != nil {
+		c.JSON(appErr.Status, Envelope{Error: &Error{Code: appErr.Code, Message: appErr.Message}, RequestID: RequestID(c)})
+		return
+	}
+	// Fallbacks for plain errors that are not AppError instances.
 	switch err.Error() {
 	case "record not found", "resource not found":
 		c.JSON(http.StatusNotFound, Envelope{Error: &Error{Code: "NOT_FOUND", Message: "resource not found"}, RequestID: RequestID(c)})

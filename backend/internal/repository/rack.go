@@ -57,6 +57,9 @@ func (r *RackRepository) All(ctx context.Context) ([]model.Rack, error) {
 func (r *RackRepository) Get(ctx context.Context, id uint) (model.Rack, error) {
 	var rack model.Rack
 	if err := r.db.WithContext(ctx).Preload("ThermalZone").First(&rack, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.Rack{}, web.NotFound("rack")
+		}
 		return model.Rack{}, fmt.Errorf("get rack %d: %w", id, err)
 	}
 	return rack, nil

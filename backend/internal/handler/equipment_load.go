@@ -30,7 +30,7 @@ func (h *EquipmentLoadHandler) Get(c *gin.Context) {
 	}
 	item, err := h.service.Get(c.Request.Context(), id)
 	if err != nil {
-		web.Fail(c, web.Internal(err))
+		web.Fail(c, err)
 		return
 	}
 	web.OK(c, item)
@@ -60,7 +60,7 @@ func (h *EquipmentLoadHandler) Update(c *gin.Context) {
 	}
 	item, err := h.service.Update(c.Request.Context(), id, req, auditFrom(c))
 	if err != nil {
-		web.Fail(c, web.Internal(err))
+		web.Fail(c, err)
 		return
 	}
 	web.OK(c, item)

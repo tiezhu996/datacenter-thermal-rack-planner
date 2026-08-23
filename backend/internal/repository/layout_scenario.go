@@ -45,6 +45,9 @@ func (r *LayoutScenarioRepository) List(ctx context.Context, search, status stri
 func (r *LayoutScenarioRepository) Get(ctx context.Context, id uint) (model.LayoutScenario, error) {
 	var scenario model.LayoutScenario
 	if err := r.db.WithContext(ctx).First(&scenario, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.LayoutScenario{}, web.NotFound("layout scenario")
+		}
 		return model.LayoutScenario{}, fmt.Errorf("get layout scenario %d: %w", id, err)
 	}
 	return scenario, nil

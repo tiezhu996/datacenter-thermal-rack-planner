@@ -44,6 +44,9 @@ func (r *ThermalZoneRepository) List(ctx context.Context, search, status string,
 func (r *ThermalZoneRepository) Get(ctx context.Context, id uint) (model.ThermalZone, error) {
 	var zone model.ThermalZone
 	if err := r.db.WithContext(ctx).First(&zone, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.ThermalZone{}, web.NotFound("thermal zone")
+		}
 		return model.ThermalZone{}, fmt.Errorf("get thermal zone %d: %w", id, err)
 	}
 	return zone, nil
