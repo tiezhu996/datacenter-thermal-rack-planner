@@ -167,7 +167,7 @@ func (s *LayoutScenarioService) Transition(ctx context.Context, id uint, req dto
 	actor.EntityType = "layout_scenario"
 	actor.BeforeSummary = string(current.ScenarioStatus)
 	actor.AfterSummary = fmt.Sprintf("%s reason=%s", req.TargetStatus, strings.TrimSpace(req.Reason))
-	if err := s.scenarios.Transition(ctx, current, req.TargetStatus, actor.ActorID, actor); err != nil {
+	if err := s.scenarios.Transition(ctx, current, req.TargetStatus, actor.ActorID, req.Version, actor); err != nil {
 		return dto.ScenarioResponse{}, err
 	}
 	return s.Get(ctx, id)

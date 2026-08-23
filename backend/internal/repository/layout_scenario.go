@@ -69,7 +69,12 @@ func (r *LayoutScenarioRepository) BeginEvaluation(ctx context.Context, id, expe
 		if err := tx.First(&scenario, id).Error; err != nil {
 			return web.NotFound("layout scenario")
 		}
-		result := tx.Model(&model.LayoutScenario{}).Where("id = ?", id).
+		// Optimistic lock + state guard: only a draft at the caller's known
+		// version may enter evaluation. A concurrent evaluate or transition
+		// bumps version and/or moves status away from draft, so this matches
+		// zero rows and surfaces a conflict instead of silently succeeding.
+		result := tx.Model(&model.LayoutScenario{}).
+			Where("id = ? AND version = ? AND scenario_status = ?", id, expectedVersion, constants.ScenarioDraft).
 			Updates(map[string]any{"scenario_status": constants.ScenarioEvaluating, "version": gorm.Expr("version + 1")})
 		if result.Error != nil {
 			return fmt.Errorf("begin scenario evaluation: %w", result.Error)
@@ -86,7 +91,7 @@ func (r *LayoutScenarioRepository) BeginEvaluation(ctx context.Context, id, expe
 		return model.LayoutScenario{}, err
 	}
 	scenario.ScenarioStatus = constants.ScenarioEvaluating
-	scenario.Version++
+	scenario.Version = expectedVersion + 1
 	return scenario, nil
 }
 
@@ -102,8 +107,11 @@ type EvaluationUpdate struct {
 
 func (r *LayoutScenarioRepository) FinishEvaluation(ctx context.Context, scenario model.LayoutScenario, update EvaluationUpdate, entry audit.Entry) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Guard on the evaluating status + the version BeginEvaluation set.
+		// If anything moved the scenario (e.g. a manual transition back to
+		// draft, or a duplicate finish), the update matches zero rows.
 		result := tx.Model(&model.LayoutScenario{}).
-			Where("id = ?", scenario.ID).
+			Where("id = ? AND version = ? AND scenario_status = ?", scenario.ID, scenario.Version, constants.ScenarioEvaluating).
 			Updates(map[string]any{
 				"rack_assignments_json":      update.AssignmentsJSON,
 				"input_snapshot_json":        update.SnapshotJSON,
@@ -128,14 +136,17 @@ func (r *LayoutScenarioRepository) FinishEvaluation(ctx context.Context, scenari
 	})
 }
 
-func (r *LayoutScenarioRepository) Transition(ctx context.Context, scenario model.LayoutScenario, target constants.ScenarioStatus, actorID uint, entry audit.Entry) error {
+func (r *LayoutScenarioRepository) Transition(ctx context.Context, scenario model.LayoutScenario, target constants.ScenarioStatus, actorID uint, expectedVersion uint, entry audit.Entry) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Optimistic lock: the row must still be at the status and version the
+		// caller read. A concurrent transition or evaluation changes one or
+		// both, so a stale request matches zero rows and is rejected.
 		updates := map[string]any{"scenario_status": target, "version": gorm.Expr("version + 1")}
 		if target == constants.ScenarioApproved {
 			updates["approved_by"] = actorID
 		}
 		result := tx.Model(&model.LayoutScenario{}).
-			Where("id = ?", scenario.ID).
+			Where("id = ? AND version = ? AND scenario_status = ?", scenario.ID, expectedVersion, scenario.ScenarioStatus).
 			Updates(updates)
 		if result.Error != nil {
 			return fmt.Errorf("transition layout scenario: %w", result.Error)
