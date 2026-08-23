@@ -49,7 +49,9 @@ func adjacentHeatPenalty(zone model.ThermalZone, zones []model.ThermalZone, heat
 		if !ok || neighbor.CoolingCapacityKW <= 0 {
 			continue
 		}
-		penalty += (heat[zone.ID] / neighbor.CoolingCapacityKW) * weight
+		// The penalty reflects the heat spilled FROM each neighbor INTO this
+		// zone, so it must read the neighbor's heat, not this zone's own.
+		penalty += (heat[neighbor.ID] / neighbor.CoolingCapacityKW) * weight
 	}
 	return penalty
 }

@@ -61,10 +61,23 @@ func (r UpdateThermalZoneRequest) ValidateBusiness(zoneCode string) error {
 }
 
 func validateAdjacency(self string, adjacency map[string]float64) error {
+	selfCode := normalizeZoneCode(self)
+	seen := make(map[string]bool, len(adjacency))
 	for code, weight := range adjacency {
-		if weight < 0 || weight > 1 {
-			return fmt.Errorf("adjacency weight for %s must be between 0 and 1", code)
+		neighbor := normalizeZoneCode(code)
+		if neighbor == "" {
+			return fmt.Errorf("adjacency key %q is not a valid zone code", code)
 		}
+		if neighbor == selfCode {
+			return fmt.Errorf("thermal zone %s cannot be adjacent to itself", selfCode)
+		}
+		if weight < 0 || weight > 1 {
+			return fmt.Errorf("adjacency weight for %s must be between 0 and 1", neighbor)
+		}
+		if seen[neighbor] {
+			return fmt.Errorf("adjacency entry for %s is duplicated", neighbor)
+		}
+		seen[neighbor] = true
 	}
 	return nil
 }
@@ -73,12 +86,13 @@ func NewThermalZone(req CreateThermalZoneRequest) (model.ThermalZone, error) {
 	if err := req.ValidateBusiness(); err != nil {
 		return model.ThermalZone{}, err
 	}
-	adjacency, err := json.Marshal(req.Adjacency)
+	normalized := NormalizeAdjacency(req.Adjacency)
+	adjacency, err := json.Marshal(normalized)
 	if err != nil {
 		return model.ThermalZone{}, fmt.Errorf("encode zone adjacency: %w", err)
 	}
 	return model.ThermalZone{
-		ZoneCode:          strings.ToUpper(strings.TrimSpace(req.ZoneCode)),
+		ZoneCode:          normalizeZoneCode(req.ZoneCode),
 		Name:              strings.TrimSpace(req.Name),
 		CoolingCapacityKW: req.CoolingCapacityKW,
 		SupplyTempC:       req.SupplyTempC,
@@ -88,10 +102,35 @@ func NewThermalZone(req CreateThermalZoneRequest) (model.ThermalZone, error) {
 	}, nil
 }
 
+// normalizeZoneCode matches the canonical form used for zone_code so that
+// adjacency keys line up with stored zone codes regardless of input case.
+func normalizeZoneCode(code string) string {
+	return strings.ToUpper(strings.TrimSpace(code))
+}
+
+// NormalizeAdjacency upper-cases and trims every adjacency key, collapsing
+// case-only duplicates. Callers must have already validated the input.
+func NormalizeAdjacency(adjacency map[string]float64) map[string]float64 {
+	if adjacency == nil {
+		return map[string]float64{}
+	}
+	normalized := make(map[string]float64, len(adjacency))
+	for code, weight := range adjacency {
+		normalized[normalizeZoneCode(code)] = weight
+	}
+	return normalized
+}
+
+// DecodeAdjacency parses a stored adjacency blob. It always returns a usable
+// map (never nil), so serialized responses carry `{}` instead of `null` when
+// the stored value is empty or malformed.
 func DecodeAdjacency(raw string) map[string]float64 {
 	value := map[string]float64{}
 	if err := json.Unmarshal([]byte(raw), &value); err != nil {
-		return nil
+		return map[string]float64{}
+	}
+	if value == nil {
+		return map[string]float64{}
 	}
 	return value
 }

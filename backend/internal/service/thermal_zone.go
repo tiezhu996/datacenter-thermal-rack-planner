@@ -89,7 +89,7 @@ func (s *ThermalZoneService) Update(ctx context.Context, id uint, req dto.Update
 	if err := req.ValidateBusiness(current.ZoneCode); err != nil {
 		return dto.ThermalZoneResponse{}, web.Unprocessable("INVALID_ZONE_BOUNDARY", err.Error(), err)
 	}
-	adjacency, err := json.Marshal(req.Adjacency)
+	adjacency, err := json.Marshal(dto.NormalizeAdjacency(req.Adjacency))
 	if err != nil {
 		return dto.ThermalZoneResponse{}, web.BadRequest("INVALID_ADJACENCY", "adjacency cannot be encoded", err)
 	}
